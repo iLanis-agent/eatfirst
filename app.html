@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EatFirst - no more science experiments in the fridge</title>
+<style>
+  :root { --ink:#1c2b26; --muted:#6b7a73; --accent:#2f6f5e; --accent-dk:#265c4e; --card:#ffffff; --bg:#f4f6f3; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:680px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:28px; margin:0 0 6px; }
+  .tag { color:var(--muted); margin:0 0 20px; line-height:1.45; }
+  .card { background:var(--card); border:1px solid #e3e8e4; border-radius:14px; padding:18px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input, select { padding:9px 10px; border:1px solid #d4dcd6; border-radius:8px; font-size:15px; background:#fff; }
+  input[type=text] { width:160px; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+  button:hover { background:var(--accent-dk); }
+  button.ghost { background:#eef1ee; color:var(--ink); }
+  button.ghost:hover { background:#e2e7e2; }
+  .banner { border-radius:10px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
+  .banner.today { background:#f6ecd2; color:#8a6a14; }
+  .banner.toss { background:#f6e0dd; color:#8f3a33; }
+  .item { display:flex; justify-content:space-between; gap:10px; padding:12px 0; border-top:1px solid #eef1ee; }
+  .item:first-of-type { border-top:0; }
+  .item h3 { margin:0 0 3px; font-size:16px; }
+  .meta { color:var(--muted); font-size:13px; }
+  .right { text-align:right; min-width:120px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; margin-bottom:5px; }
+  .pill.fresh { background:#e2f0e6; color:#2f6f45; }
+  .pill.soon { background:#f6ecd2; color:#8a6a14; }
+  .pill.today { background:#f6ecd2; color:#8a6a14; }
+  .pill.toss { background:#f6e0dd; color:#8f3a33; }
+  .days { font-size:15px; font-weight:600; }
+  .rm { font-size:12px; color:var(--muted); background:none; padding:2px 6px; }
+  .rm:hover { color:#8f3a33; text-decoration:underline; }
+  .empty { color:var(--muted); text-align:center; padding:14px 0 4px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>EatFirst</h1>
+  <p class="tag">Leftovers don't announce when they turn. EatFirst tracks every container, applies real safe-window rules per food type, and orders the fridge so tonight's dinner is the thing that would have died tomorrow.</p>
+
+  <div class="card">
+    <div class="row">
+      <div><label for="name">Leftover</label><input type="text" id="name" placeholder="Chicken curry"></div>
+      <div><label for="category">Type</label>
+        <select id="category">
+          <option>poultry</option><option>cooked meat</option><option>fish</option>
+          <option>rice/grains</option><option>soup/stew</option><option>vegetables</option>
+          <option>pasta</option><option>pizza</option><option>eggs (cooked)</option>
+          <option>bread/baked</option><option>other</option>
+        </select></div>
+      <div><label for="cooked">Cooked</label><input type="date" id="cooked"></div>
+      <button id="addBtn">Add</button>
+    </div>
+  </div>
+
+  <div class="banner today hidden" id="todayBanner"></div>
+  <div class="banner toss hidden" id="tossBanner"></div>
+
+  <div class="card">
+    <div class="empty" id="emptyMsg">Nothing tracked. Add tonight's leftovers before they go in the fridge.</div>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function(){
+  var E = EatFirstEngine;
+  var items = [];
+  try { items = JSON.parse(localStorage.getItem('eatfirst') || '[]'); } catch(e){}
+  var $ = function(id){ return document.getElementById(id); };
+  function todayISO(){
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function save(){ localStorage.setItem('eatfirst', JSON.stringify(items)); }
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function render(){
+    var t = todayISO();
+    var sorted = E.sortItems(items, t);
+    var c = E.counts(items, t);
+    $('emptyMsg').style.display = items.length ? 'none' : 'block';
+    if (c.today > 0){
+      $('todayBanner').classList.remove('hidden');
+      $('todayBanner').textContent = c.today === 1 ? '1 leftover must be eaten today.' : c.today + ' leftovers must be eaten today.';
+    } else $('todayBanner').classList.add('hidden');
+    if (c.toss > 0){
+      $('tossBanner').classList.remove('hidden');
+      $('tossBanner').textContent = c.toss === 1 ? '1 item is past its window - bin it before someone brave finds it.' : c.toss + ' items are past their window - bin them.';
+    } else $('tossBanner').classList.add('hidden');
+    var html = '';
+    for (var i = 0; i < sorted.length; i++){
+      var it = sorted[i];
+      var st = E.status(t, it.cooked, it.category);
+      var pillText = st === 'fresh' ? 'fresh' : st === 'soon' ? 'eat soon' : st === 'today' ? 'eat today' : 'toss';
+      html += '<div class="item">'
+        + '<div><h3>' + esc(it.name) + '</h3>'
+        + '<div class="meta">cooked ' + E.fmtISO(it.cooked) + ' - safe through ' + E.fmtISO(E.eatByISO(it.cooked, it.category)) + ' (' + it.category + ')</div></div>'
+        + '<div class="right"><span class="pill ' + st + '">' + pillText + '</span>'
+        + '<div class="days">' + E.daysLabel(t, it.cooked, it.category) + '</div>'
+        + '<button class="rm" data-idx="' + items.indexOf(it) + '">remove</button></div></div>';
+    }
+    $('list').innerHTML = html;
+    var rms = document.querySelectorAll('.rm');
+    for (var j = 0; j < rms.length; j++){
+      rms[j].addEventListener('click', function(){
+        items.splice(parseInt(this.getAttribute('data-idx'), 10), 1);
+        save(); render();
+      });
+    }
+  }
+
+  $('addBtn').addEventListener('click', function(){
+    var name = $('name').value.trim();
+    var cooked = $('cooked').value;
+    if (!name || !cooked) return;
+    items.push({ name: name, category: $('category').value, cooked: cooked });
+    $('name').value = '';
+    save(); render();
+  });
+
+  $('cooked').value = todayISO();
+  render();
+})();
+</script>
+</body>
+</html>
